@@ -15,11 +15,14 @@
         src="https://cdn.jsdelivr.net/npm/three@0.104.0/examples/js/lines/LineMaterial.js"></script>
     <script type="text/javascript"
         src="https://cdn.jsdelivr.net/npm/maptalks.three/dist/maptalks.three.min.js"></script>
-    <script type="text/javascript" src="./js/tile-cover.js"></script>
     <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/axios@0.19.2/dist/axios.min.js"></script>
     <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/rbush@3.0.1/rbush.min.js"></script>
     <script type="text/javascript"
         src="https://cdn.jsdelivr.net/npm/three@0.104.0/examples/js/libs/stats.min.js"></script>
+    <script type="text/javascript" src="./js/tile-cover.js"></script>
+    <script type="text/javascript" src="./js/TextSprite.js"></script>
+    <script type="text/javascript" src="./js/ThreeLayer.js"></script>
+    <script type="text/javascript" src="./js/util.js"></script>
 
     <style>
         html,
@@ -61,8 +64,6 @@
 
         var map = new maptalks.Map("map", {
             "center": [116.39184088520585, 39.91615319679542], "zoom": 16.005334044803836, "pitch": 0, "bearing": 7.500000000000796,
-            // bearing: 180,
-
             centerCross: true,
             doubleClickZoom: false,
             baseLayer: baseLayer
@@ -77,20 +78,18 @@
 
         drawTool.on('drawend', function (param) {
             drawTool.disable();
-            console.log(param.geometry);
             param.geometry.setSymbol({
                 lineColor: 'red',
                 lineWidth: 4
             });
             layer.addGeometry(param.geometry);
             const geojson = param.geometry.toGeoJSON();
-            const zoom = Math.round(map.getZoom());
             const tiles = cover.tiles(geojson.geometry, {
                 min_zoom: 16,
                 max_zoom: 16
             });
             if (tiles.length > 50) {
-                alert('tiles.length>50');
+                alert('tiles.length>50 expected small area');
                 return;
             }
             if (tiles && tiles.length) {
@@ -130,7 +129,7 @@
                     console.error(err);
                 }).finally(() => {
                     idx++;
-                    const messaga = (tiles.length - idx) > 0 ? `瓦片下载还剩:${tiles.length - idx}` : '';
+                    const messaga = (tiles.length - idx) > 0 ? `loading tile, Remaining:${tiles.length - idx}` : '';
                     document.getElementById('message').innerHTML = messaga;
                     if (idx < tiles.length) {
                         load();
@@ -143,137 +142,6 @@
         }
 
 
-        maptalks.ThreeLayer.prototype.texts = [];
-        maptalks.ThreeLayer.prototype.rbush = new RBush();
-        maptalks.ThreeLayer.prototype.collides = function () {
-            this.rbush.clear();
-            for (let i = 0, len = this.texts.length; i < len; i++) {
-                const text = this.texts[i];
-                const textRect = text.getTextRect();
-                if (this.rbush.collides(textRect)) {
-                    text.hide();
-                } else {
-                    text.show();
-                    this.rbush.insert(textRect);
-                }
-            }
-        }
-
-
-        maptalks.ThreeLayer.prototype.toText = function (coordinate, options) {
-            return new TextSprite(coordinate, options, this);
-        }
-
-
-        // @Override
-        maptalks.ThreeLayer.prototype._zoomend = function () {
-            const scene = this.getScene();
-            if (!scene) {
-                return;
-            }
-            const zoom = this.getMap().getZoom();
-            scene.children.forEach(mesh => {
-                const parent = mesh.__parent;
-                if (parent && parent.getOptions) {
-                    if (!parent.getOptions().zoomFilter) {
-                        return;
-                    }
-                    const minZoom = parent.getMinZoom(), maxZoom = parent.getMaxZoom();
-                    if ((zoom < minZoom || zoom > maxZoom) && parent.isVisible()) {
-                        parent.hide();
-                    } else if (minZoom <= zoom && zoom <= maxZoom && (!parent.isVisible())) {
-                        parent.show();
-                    }
-                }
-            });
-        }
-
-        // @Override
-        maptalks.ThreeLayer.prototype.addMesh = function (meshes, render = true) {
-            if (!meshes) return this;
-            if (!Array.isArray(meshes)) {
-                meshes = [meshes];
-            }
-            const scene = this.getScene();
-            meshes.forEach(mesh => {
-                if (mesh instanceof maptalks.BaseObject) {
-                    scene.add(mesh.getObject3d());
-                    if (!mesh.isAdd) {
-                        mesh.isAdd = true;
-                        mesh._fire('add', { target: mesh });
-                        if (mesh instanceof TextSprite) {
-                            this.texts.push(mesh);
-                            const textRect = mesh.getTextRect();
-                            if (threeLayer.rbush.collides(textRect)) {
-                                mesh.hide();
-                            } else {
-                                mesh.show();
-                                threeLayer.rbush.insert(textRect);
-                            }
-                        }
-                    }
-                    if (mesh._animation && maptalks.Util.isFunction(mesh._animation)) {
-                        this._animationBaseObjectMap[mesh.getObject3d().uuid] = mesh;
-                    }
-                } else if (mesh instanceof THREE.Object3D) {
-                    scene.add(mesh);
-                }
-            });
-            this._zoomend();
-            // sort by weight
-            this.texts.sort(function (text1, text2) {
-                return text2.getOptions().weight - text1.getOptions().weight;
-            });
-            this.collides();
-            if (render) {
-                this.renderScene();
-            }
-            return this;
-        }
-
-        /**
-         * remove object3ds
-         * @param {BaseObject} meshes
-         */
-        // @Override
-        maptalks.ThreeLayer.prototype.removeMesh = function (meshes, render = true) {
-            if (!meshes) return this;
-            if (!Array.isArray(meshes)) {
-                meshes = [meshes];
-            }
-            const scene = this.getScene();
-            meshes.forEach(mesh => {
-                if (mesh instanceof maptalks.BaseObject) {
-                    scene.remove(mesh.getObject3d());
-                    if (mesh.isAdd) {
-                        mesh.isAdd = false;
-                        mesh._fire('remove', { target: mesh });
-                        if (mesh instanceof TextSprite) {
-                            for (let i = 0, len = this.texts.length; i < len; i++) {
-                                if (mesh === this.texts[i]) {
-                                    this.texts.splice(i, 1);
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                    if (mesh._animation && maptalks.Util.isFunction(mesh._animation)) {
-                        delete this._animationBaseObjectMap[mesh.getObject3d().uuid];
-                    }
-                } else if (mesh instanceof THREE.Object3D) {
-                    scene.remove(mesh);
-                }
-            });
-            // sort by weight
-            this.texts.sort(function (text1, text2) {
-                return text2.getOptions().weight - text1.getOptions().weight;
-            });
-            this.collides();
-            if (render) {
-                this.renderScene();
-            }
-            return this;
-        }
 
         // the ThreeLayer to draw buildings
         var threeLayer = new maptalks.ThreeLayer('t', {
@@ -323,7 +191,7 @@
                 if (!features || features.length === 0) {
                     continue;
                 }
-                features = splitMulti(features);
+                features = flatMulti(features);
                 let mesh;
                 switch (layer) {
                     case 'buildings':
@@ -434,11 +302,18 @@
                     tileMeshes.push(mesh);
                 }
             }
-            threeLayer.addMesh(tileMeshes);
+            if (!params.text) {
+                threeLayer.addMesh(tileMeshes.filter(mesh => {
+                    return !(mesh instanceof TextSprite);
+                }));
+            } else {
+                threeLayer.addMesh(tileMeshes);
+            }
+
             return tileMeshes;
         }
 
-        function splitMulti(features) {
+        function flatMulti(features) {
             const fs = [];
             features.forEach(f => {
                 const properties = f.properties;
@@ -476,60 +351,59 @@
             requestAnimationFrame(animation);
         }
 
-        function initGui() {
-            var params = {
-                draw: function () {
-                    drawTool.setMode('Rectangle').enable();
-                    layer.clear();
-                    threeLayer.removeMesh(meshes);
-                },
-                clearDraw: function () {
-                    layer.clear();
-                },
-                clear: function () {
-                    layer.clear();
-                    threeLayer.removeMesh(meshes);
-                },
-                download: function () {
-                    const canvas = document.createElement('canvas');
-                    const size = map.getSize();
-                    canvas.width = size.width;
-                    canvas.height = size.height;
-                    const ctx = canvas.getContext('2d');
-                    ctx.fillStyle = params.background;
-                    ctx.fillRect(0, 0, size.width, size.height);
-                    const image = new Image();
-                    image.src = map.toDataURL();
-                    image.onload = function () {
-                        ctx.drawImage(image, 0, 0, size.width, size.height);
-                        let content = dataURLtoBlob(canvas.toDataURL());
-                        downloadFile(content, Date.now() + '.png');
 
-                        ctx.clearRect(0, 0, size.width, size.height);
-                        ctx.save();
-                        ctx.drawImage(image, 0, 0, size.width, size.height);
-                        content = dataURLtoBlob(canvas.toDataURL());
-                        downloadFile(content, Date.now() + '.png');
-                    }
-                },
-                downloadGeoJSON: function () {
-                    downloadFile(JSON.stringify(geojson), Date.now() + '.geojson');
-                },
-                background: '#000',
-                tilelayer: true,
-                buildingcolor: buildingMaterial.color.getStyle(),
-                waterColor: waterMaterial.color.getStyle(),
-                waterLineColor: waterLineMaterial.color.getStyle(),
-                landColor: landMaterial.color.getStyle(),
-                roadColor: roadMaterial.color.getStyle(),
-                subwayColor: subwayMaterial.color.getStyle(),
-                grassColor: grassMaterial.color.getStyle(),
-                textColor: textColor,
-                show: true,
-                opacity: 1,
-                altitude: 0,
-                interactive: false
-            };
+        var params = {
+            draw: function () {
+                drawTool.setMode('Rectangle').enable();
+                layer.clear();
+                threeLayer.removeMesh(meshes);
+            },
+            clearDraw: function () {
+                layer.clear();
+            },
+            clear: function () {
+                layer.clear();
+                threeLayer.removeMesh(meshes);
+            },
+            download: function () {
+                const canvas = document.createElement('canvas');
+                const size = map.getSize();
+                canvas.width = size.width;
+                canvas.height = size.height;
+                const ctx = canvas.getContext('2d');
+                ctx.fillStyle = params.background;
+                ctx.fillRect(0, 0, size.width, size.height);
+                const image = new Image();
+                image.src = map.toDataURL();
+                image.onload = function () {
+                    ctx.drawImage(image, 0, 0, size.width, size.height);
+                    let content = dataURLtoBlob(canvas.toDataURL());
+                    downloadFile(content, Date.now() + '.png');
+
+                    ctx.clearRect(0, 0, size.width, size.height);
+                    ctx.save();
+                    ctx.drawImage(image, 0, 0, size.width, size.height);
+                    content = dataURLtoBlob(canvas.toDataURL());
+                    downloadFile(content, Date.now() + '.png');
+                }
+            },
+            downloadGeoJSON: function () {
+                downloadFile(JSON.stringify(geojson), Date.now() + '.geojson');
+            },
+            background: '#000',
+            tilelayer: true,
+            buildingcolor: buildingMaterial.color.getStyle(),
+            waterColor: waterMaterial.color.getStyle(),
+            waterLineColor: waterLineMaterial.color.getStyle(),
+            landColor: landMaterial.color.getStyle(),
+            roadColor: roadMaterial.color.getStyle(),
+            subwayColor: subwayMaterial.color.getStyle(),
+            grassColor: grassMaterial.color.getStyle(),
+            textColor: textColor,
+            text: true
+        };
+
+        function initGui() {
 
             var gui = new dat.GUI({
                 width: 350
@@ -582,6 +456,16 @@
                 grassMaterial.needsUpdate = true;
                 grassMaterial.color.needsUpdate = true;
             });
+            gui.add(params, 'text').name('show text').onChange(function () {
+                const texts = meshes.filter(mesh => {
+                    return mesh instanceof TextSprite;
+                });
+                if (params.text) {
+                    threeLayer.addMesh(texts);
+                } else {
+                    threeLayer.removeMesh(texts);
+                }
+            });
             gui.addColor(params, 'textColor').onChange(function () {
                 meshes.forEach(mesh => {
                     if (mesh instanceof TextSprite) {
@@ -595,165 +479,6 @@
 
         }
 
-
-        function downloadFile(content, FILENAME) {
-            const eleLink = document.createElement('a');
-            eleLink.download = FILENAME;
-            eleLink.style.display = 'none';
-            const blob = new Blob([content]);
-            eleLink.href = URL.createObjectURL(blob);
-            document.body.appendChild(eleLink);
-            eleLink.click();
-            document.body.removeChild(eleLink);
-        }
-
-
-
-        /**
-        *Base64瀛楃涓茶浆浜岃繘鍒�
-        */
-        function dataURLtoBlob(dataurl) {
-            var arr = dataurl.split(','),
-                mime = arr[0].match(/:(.*?);/)[1],
-                bstr = atob(arr[1]),
-                n = bstr.length,
-                u8arr = new Uint8Array(n);
-            while (n--) {
-                u8arr[n] = bstr.charCodeAt(n);
-            }
-            return new Blob([u8arr], {
-                type: mime
-            });
-        }
-
-
-        //default values
-        var OPTIONS1 = {
-            fontSize: 20,
-            altitude: 0,
-            color: '#fff',
-            text: 'hello',
-            weight: 0,
-            zoomFilter: false
-        };
-
-        /**
-         * custom component
-         * We can think of it as a point.
-         * */
-
-        class TextSprite extends maptalks.BaseObject {
-            constructor(coordinate, options, layer) {
-                options = maptalks.Util.extend({}, OPTIONS1, options, { layer, coordinate });
-                super();
-                //Initialize internal configuration
-                // https://github.com/maptalks/maptalks.three/blob/1e45f5238f500225ada1deb09b8bab18c1b52cf2/src/BaseObject.js#L135
-                this._initOptions(options);
-                const { altitude, fontSize, color, text } = options;
-
-
-                //Initialize internal object3d
-                // https://github.com/maptalks/maptalks.three/blob/1e45f5238f500225ada1deb09b8bab18c1b52cf2/src/BaseObject.js#L140
-                this._createGroup();
-                const textsprite = new THREE_Text2D.SpriteText2D(text, { align: THREE_Text2D.textAlign.center, font: `${fontSize * 2}px Arial`, fillStyle: color, antialias: false });
-                textsprite.children[0].material.sizeAttenuation = false;
-                const scale = 0.01 / 10 / 3;
-                textsprite.scale.set(scale, scale, scale);
-                this.getObject3d().add(textsprite);
-
-                //set object3d position
-                const z = layer.distanceToVector3(altitude, altitude).x;
-                const position = layer.coordinateToVector3(coordinate, z);
-                this.getObject3d().position.copy(position);
-                this.textRect = {
-                    width: this.calTextWidth(text, fontSize),
-                    height: fontSize
-                }
-
-                this._vector = new THREE.Vector3();
-                this._pixel = {
-                    x: 0,
-                    y: 0
-                };
-            }
-
-            getTextRect() {
-                this.getPixel();
-                const { x, y } = this._pixel;
-                const { width, height } = this.textRect;
-                return {
-                    minX: x - width / 2,
-                    minY: y - height / 2,
-                    maxX: x + width / 2,
-                    maxY: y + height / 2
-                }
-            }
-
-            calTextWidth(text, fontSize) {
-                const chinese = text.match(/[\u4e00-\u9fa5]/g) || '';
-                const chineseLen = chinese.length;
-                const width = chineseLen * fontSize + (text.length - chineseLen) * 0.5 * fontSize;
-                return width;
-            }
-
-            getPixel() {
-                const size = this.getMap().getSize();
-                const camera = this.getLayer().getCamera();
-                const position = this.getObject3d().position;
-                this._vector.x = position.x;
-                this._vector.y = position.y;
-                this._vector.z = position.z;
-                this._pixel = simplepath.vector2Pixel(this._vector, size, camera);
-            }
-
-            identify(coordinate) {
-                const { minX, minY, maxX, maxY } = this.getTextRect();
-                const pixel = this.getMap().coordToContainerPoint(coordinate);
-                if (pixel.x >= minX && pixel.x <= maxX && pixel.y >= minY && pixel.y <= maxY) {
-                    return true;
-                }
-                return false;
-            }
-        }
-
-
-        var simplepath = {
-
-            positionsConvert: function (worldPoints, altitude = 0, layer) {
-                const vectors = [];
-                for (let i = 0, len = worldPoints.length; i < len; i += 3) {
-                    let x = worldPoints[i], y = worldPoints[i + 1], z = worldPoints[i + 2];
-                    if (altitude > 0) {
-                        z += layer.distanceToVector3(altitude, altitude).x;
-                    }
-                    vectors.push(new THREE.Vector3(x, y, z));
-                }
-                return vectors;
-            },
-
-            vectors2Pixel: function (worldPoints, size, camera, altitude = 0, layer) {
-                if (!(worldPoints[0] instanceof THREE.Vector3)) {
-                    worldPoints = simplepath.positionsConvert(worldPoints, altitude, layer);
-                }
-                const pixels = worldPoints.map(worldPoint => {
-                    return simplepath.vector2Pixel(worldPoint, size, camera);
-                })
-                return pixels;
-
-            },
-
-            vector2Pixel: function (world_vector, size, camera) {
-                const vector = world_vector.project(camera);
-                const halfWidth = size.width / 2;
-                const halfHeight = size.height / 2;
-                const result = {
-                    x: Math.round(vector.x * halfWidth + halfWidth),
-                    y: Math.round(-vector.y * halfHeight + halfHeight)
-                };
-                return result;
-            },
-
-        };
 
 
     </script>
