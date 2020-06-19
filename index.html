@@ -80,8 +80,7 @@
             console.log(param.geometry);
             param.geometry.setSymbol({
                 lineColor: 'red',
-                lineWidth: 4,
-                lineDasharray: [5, 5]
+                lineWidth: 4
             });
             layer.addGeometry(param.geometry);
             const geojson = param.geometry.toGeoJSON();
