@@ -21,6 +21,7 @@
         src="https://cdn.jsdelivr.net/npm/three@0.104.0/examples/js/libs/stats.min.js"></script>
     <script type="text/javascript" src="./js/tile-cover.js"></script>
     <script type="text/javascript" src="./js/TextSprite.js"></script>
+    <script type="text/javascript" src="./js/Groud.js"></script>
     <script type="text/javascript" src="./js/ThreeLayer.js"></script>
     <script type="text/javascript" src="./js/util.js"></script>
 
@@ -35,17 +36,17 @@
         #map {
             width: 100%;
             height: 100%;
-            background-color: #000;
+            background-color: #fff;
         }
 
         #message {
             position: absolute;
-            width: 150px;
+            width: 250px;
             left: 50%;
             top: 0px;
             background: #000;
             color: #fff;
-            margin-left: -75px;
+            margin-left: -125px;
             text-align: center;
         }
     </style>
@@ -63,7 +64,9 @@
         });
 
         var map = new maptalks.Map("map", {
-            "center": [116.39184088520585, 39.91615319679542], "zoom": 16.005334044803836, "pitch": 0, "bearing": 7.500000000000796,
+            "center": [116.39184088520585, 39.91615319679542],
+            // "center": [-74.00388656857473, 40.7100693717168],
+            "zoom": 16.005334044803836, "pitch": 0, "bearing": 7.500000000000796,
             centerCross: true,
             doubleClickZoom: false,
             baseLayer: baseLayer
@@ -71,6 +74,7 @@
 
         var layer = new maptalks.VectorLayer(maptalks.Util.GUID());
         map.addLayer(layer);
+        layer.setZIndex(2);
 
         var drawTool = new maptalks.DrawTool({
             mode: 'Point'
@@ -78,11 +82,29 @@
 
         drawTool.on('drawend', function (param) {
             drawTool.disable();
-            param.geometry.setSymbol({
+            const geometry = param.geometry;
+            geometry.setSymbol({
                 lineColor: 'red',
                 lineWidth: 4
             });
-            layer.addGeometry(param.geometry);
+            layer.addGeometry(geometry);
+            // reset cube ground position
+            const v = threeLayer.coordinateToVector3(geometry.getCenter());
+            cube.position.copy(v);
+            ground.getObject3d().position.x = v.x;
+            ground.getObject3d().position.y = v.y;
+
+            const area = map.computeGeometryArea(geometry);
+            const r = Math.sqrt(area / Math.PI);
+            lightCircle = new maptalks.Circle(geometry.getCenter(), r * 1.5, {
+                numberOfShellPoints: 360
+            });
+
+            // reset light postion
+            const z = threeLayer.distanceToVector3(params.lightHeight, params.lightHeight).x;
+            const v1 = threeLayer.coordinateToVector3(lightCircle.getShell()[0], z);
+            directionalLight.position.copy(v1);
+
             const geojson = param.geometry.toGeoJSON();
             const tiles = cover.tiles(geojson.geometry, {
                 min_zoom: 16,
@@ -100,11 +122,6 @@
 
 
         function getTileData(tiles) {
-            geojson = {
-                type: "FeatureCollection",
-                features: []
-            };
-            threeLayer.removeMesh(meshes);
             let idx = 0;
             var tilesMeshes = [];
 
@@ -134,7 +151,7 @@
                     if (idx < tiles.length) {
                         load();
                     } else {
-                        meshes = tilesMeshes;
+                        meshes = meshes.concat(tilesMeshes);
                     }
                 })
             }
@@ -150,6 +167,14 @@
             // animation: true
         });
         threeLayer.prepareToDraw = function (gl, scene, camera) {
+            threeLayer.getThreeRenderer().shadowMap.enabled = true;
+            threeLayer.getThreeRenderer().shadowMap.needsUpdate = true;
+
+            scene.fog = new THREE.FogExp2('#fff', 260.1606805293006 / 10000);
+
+            params.fogColor = scene.fog.color.getStyle();
+            params.fogIndetity = scene.fog.density * 10000;
+
             stats = new Stats();
             stats.domElement.style.zIndex = 100;
             document.getElementById('map').appendChild(stats.domElement);
@@ -158,9 +183,23 @@
             light.position.set(0, -10, 10).normalize();
             scene.add(light);
 
+
+
             scene.add(new THREE.AmbientLight(0xffffff, 0.2));
 
             camera.add(new THREE.PointLight(0xffffff, 0.7));
+
+
+            initLightTarget();
+
+            directionalLight.target = cube;
+
+            scene.add(directionalLight);
+
+
+            ground = new Ground(map.getCenter(), { altitude: 5 }, groundShadowMaterial, threeLayer);
+            threeLayer.addMesh(ground);
+
             animation();
             initGui();
 
@@ -171,16 +210,41 @@
             threeLayer.collides();
         });
 
+        function initLightTarget() {
+            const size = 0.001;
+            const cubeGeometry = new THREE.CubeGeometry(size, size, size);
+            const cubeMaterial = new THREE.MeshLambertMaterial({
+                color: 'yellow'
+            });
+            cube = new THREE.Mesh(cubeGeometry, cubeMaterial);
+            threeLayer.addMesh(cube);
+        }
 
+
+        var lightCircle;
         var meshes = [];
-        var geojson = {};
-        const buildingMaterial = new THREE.MeshPhongMaterial({ color: 'rgb(18,168,83)' });
+        var geojson = {
+            type: "FeatureCollection",
+            features: []
+        };
+        var cube;
+        var ground;
+        var directionalLight = new THREE.DirectionalLight(0xffffff, 0.7);
+        directionalLight.castShadow = true;
+        directionalLight.shadow.mapSize.width = 512 * 15;
+        directionalLight.shadow.mapSize.height = 512 * 15;
+        directionalLight.shadow.camera.top = 128;
+        directionalLight.shadow.camera.bottom = - 86;
+        directionalLight.shadow.camera.left = - 68;
+        directionalLight.shadow.camera.right = 74;
+        const groundShadowMaterial = new THREE.ShadowMaterial({ opacity: 0.5 });
+        const buildingMaterial = new THREE.MeshPhongMaterial({ color: 'rgb(59,67,59)' });
         const waterMaterial = new THREE.MeshPhongMaterial({ color: 'rgb(53,53,118)' });
         const waterLineMaterial = new THREE.LineMaterial({ color: 'rgb(53,53,118)', linewidth: 4 });
         const landMaterial = new THREE.MeshPhongMaterial({ color: 'rgb(143,60,60)' });
-        const roadMaterial = new THREE.MeshPhongMaterial({ color: 'rgb(26,63,115)' });
+        const roadMaterial = new THREE.MeshPhongMaterial({ color: 'rgb(21,21,23)' });
         const subwayMaterial = new THREE.LineMaterial({ color: '#000', linewidth: 4 });
-        const grassMaterial = new THREE.MeshPhongMaterial({ color: 'rgb(9,25,16)' });
+        const grassMaterial = new THREE.MeshPhongMaterial({ color: 'rgb(41,223,121)' });
         const textColor = '#fff';
 
 
@@ -203,7 +267,8 @@
                         if (!features.length) {
                             continue;
                         }
-                        mesh = threeLayer.toExtrudePolygons(features, { topColor: '#fff', interactive: false }, buildingMaterial);
+                        mesh = threeLayer.toExtrudePolygons(features, { topColor: '#fff', interactive: false, _layer: layer }, buildingMaterial);
+                        mesh.getObject3d().castShadow = true;
                         break;
                     case 'water':
                         var fs = features.filter(f => {
@@ -212,7 +277,7 @@
                             return ['Polygon', 'MultiPolygon'].indexOf(type) >= 0;
                         })
                         if (fs.length) {
-                            mesh = threeLayer.toExtrudePolygons(fs, { topColor: '#fff', interactive: false }, waterMaterial);
+                            mesh = threeLayer.toExtrudePolygons(fs, { topColor: '#fff', interactive: false, _layer: layer }, waterMaterial);
                             tileMeshes.push(mesh);
                             mesh = null;
                         }
@@ -222,7 +287,7 @@
                             return ['LineString', 'MultiLineString'].indexOf(type) >= 0;
                         });
                         if (fs.length) {
-                            mesh = threeLayer.toFatLines(fs, { topColor: '#fff', interactive: false }, waterLineMaterial);
+                            mesh = threeLayer.toFatLines(fs, { topColor: '#fff', interactive: false, _layer: layer }, waterLineMaterial);
                             tileMeshes.push(mesh);
                             mesh = null;
                         }
@@ -237,7 +302,7 @@
                         });
                         // console.log(kinds);
                         if (fs.length) {
-                            mesh = threeLayer.toExtrudePolygons(fs, { topColor: '#fff', interactive: false }, landMaterial);
+                            mesh = threeLayer.toExtrudePolygons(fs, { topColor: '#fff', interactive: false, _layer: 'natural_wood' }, landMaterial);
                             tileMeshes.push(mesh);
                             mesh = null;
                         }
@@ -249,7 +314,7 @@
                                 (['grass', 'garden', 'park', 'parking'].indexOf(kind) > -1)
                         });
                         if (fs.length) {
-                            mesh = threeLayer.toExtrudePolygons(fs, { topColor: '#fff', interactive: false }, grassMaterial);
+                            mesh = threeLayer.toExtrudePolygons(fs, { topColor: '#fff', interactive: false, _layer: 'grass' }, grassMaterial);
                             tileMeshes.push(mesh);
                             mesh = null;
                         }
@@ -264,7 +329,7 @@
                         if (!features.length) {
                             continue;
                         }
-                        mesh = threeLayer.toExtrudeLines(features, { interactive: false }, roadMaterial);
+                        mesh = threeLayer.toExtrudeLines(features, { interactive: false, _layer: layer }, roadMaterial);
                         break;
                     case 'boundaries':
 
@@ -278,7 +343,7 @@
                             const properties = f.properties;
                             if (properties.name) {
                                 const text = threeLayer.toText(f.geometry.coordinates,
-                                    { color: textColor, text: properties.name, fontSize: 25, weight: properties.collision_rank, interactive: false, altitude: 30 });
+                                    { _layer: layer, color: textColor, text: properties.name, fontSize: 25, weight: properties.collision_rank, interactive: false, altitude: 30 });
                                 tileMeshes.push(text);
                             }
                         });
@@ -292,7 +357,7 @@
                             const properties = f.properties;
                             if (properties.name) {
                                 const text = threeLayer.toText(f.geometry.coordinates,
-                                    { color: textColor, text: properties.name, fontSize: 20, weight: properties.collision_rank, interactive: false, altitude: 30 });
+                                    { _layer: layer, color: textColor, text: properties.name, fontSize: 20, weight: properties.collision_rank, interactive: false, altitude: 30 });
                                 tileMeshes.push(text);
                             }
                         });
@@ -302,12 +367,12 @@
                     tileMeshes.push(mesh);
                 }
             }
-            if (!params.text) {
+            if (!params.textAdd) {
                 threeLayer.addMesh(tileMeshes.filter(mesh => {
                     return !(mesh instanceof TextSprite);
-                }));
+                }), false);
             } else {
-                threeLayer.addMesh(tileMeshes);
+                threeLayer.addMesh(tileMeshes, false);
             }
 
             return tileMeshes;
@@ -355,8 +420,6 @@
         var params = {
             draw: function () {
                 drawTool.setMode('Rectangle').enable();
-                layer.clear();
-                threeLayer.removeMesh(meshes);
             },
             clearDraw: function () {
                 layer.clear();
@@ -364,6 +427,8 @@
             clear: function () {
                 layer.clear();
                 threeLayer.removeMesh(meshes);
+                meshes = [];
+                geojson.features = [];
             },
             download: function () {
                 const canvas = document.createElement('canvas');
@@ -390,17 +455,42 @@
             downloadGeoJSON: function () {
                 downloadFile(JSON.stringify(geojson), Date.now() + '.geojson');
             },
-            background: '#000',
+            background: '#fff',
             tilelayer: true,
+            buildingAdd: true,
             buildingcolor: buildingMaterial.color.getStyle(),
+
+            waterAdd: true,
             waterColor: waterMaterial.color.getStyle(),
             waterLineColor: waterLineMaterial.color.getStyle(),
+
+            landAdd: true,
             landColor: landMaterial.color.getStyle(),
+
+            roadAdd: true,
             roadColor: roadMaterial.color.getStyle(),
+
             subwayColor: subwayMaterial.color.getStyle(),
+
+            grassAdd: true,
             grassColor: grassMaterial.color.getStyle(),
+
             textColor: textColor,
-            text: true
+            textAdd: false,
+            textAltitude: 30,
+
+            fogColor: null,
+            fogIndetity: 1,
+
+            lightAdd: true,
+            lightColor: directionalLight.color.getStyle(),
+            lightIntensity: directionalLight.intensity,
+            lightTop: directionalLight.shadow.camera.top,
+            lightBottom: directionalLight.shadow.camera.bottom,
+            lightLeft: directionalLight.shadow.camera.left,
+            lightRight: directionalLight.shadow.camera.right,
+            lightHeight: 780,
+            lightPosition: 0
         };
 
         function initGui() {
@@ -409,7 +499,7 @@
                 width: 350
             });
             gui.add(params, 'draw').name('draw rect');
-            gui.add(params, 'clearDraw').name('clear draw');
+            gui.add(params, 'clearDraw').name('clear draw rect');
             gui.add(params, 'clear').name('clear data');
             gui.add(params, 'tilelayer').onChange(function () {
                 if (params.tilelayer) {
@@ -422,51 +512,121 @@
                 document.getElementById('map').style.background = params.background;
             });
 
-            gui.addColor(params, 'buildingcolor').onChange(function () {
+            const buildingF = gui.addFolder('building');
+            buildingF.add(params, 'buildingAdd').name('show').onChange(function () {
+                const baseObject3ds = meshes.filter(mesh => {
+                    return mesh.getOptions()._layer === 'buildings';
+                });
+                if (params.buildingAdd) {
+                    threeLayer.addMesh(baseObject3ds, false);
+                } else {
+                    threeLayer.removeMesh(baseObject3ds, false);
+                }
+            });
+
+            buildingF.addColor(params, 'buildingcolor').onChange(function () {
                 buildingMaterial.color.set(params.buildingcolor);
                 buildingMaterial.needsUpdate = true;
             });
-            gui.addColor(params, 'waterColor').onChange(function () {
+            //////
+
+            const waterF = gui.addFolder('water');
+            waterF.add(params, 'waterAdd').name('show').onChange(function () {
+                const baseObject3ds = meshes.filter(mesh => {
+                    return mesh.getOptions()._layer === 'water';
+                });
+                if (params.waterAdd) {
+                    threeLayer.addMesh(baseObject3ds, false);
+                } else {
+                    threeLayer.removeMesh(baseObject3ds, false);
+                }
+            });
+
+            waterF.addColor(params, 'waterColor').onChange(function () {
                 waterMaterial.color.set(params.waterColor);
                 waterMaterial.needsUpdate = true;
                 waterMaterial.color.needsUpdate = true;
             });
-            gui.addColor(params, 'waterLineColor').onChange(function () {
+            waterF.addColor(params, 'waterLineColor').onChange(function () {
                 waterLineMaterial.color.set(params.waterLineColor);
                 waterLineMaterial.needsUpdate = true;
                 waterLineMaterial.color.needsUpdate = true;
             });
-            gui.addColor(params, 'landColor').onChange(function () {
+            //////
+
+            const landF = gui.addFolder('land');
+            landF.add(params, 'landAdd').name('show').onChange(function () {
+                const baseObject3ds = meshes.filter(mesh => {
+                    return mesh.getOptions()._layer === 'natural_wood';
+                });
+                if (params.landAdd) {
+                    threeLayer.addMesh(baseObject3ds, false);
+                } else {
+                    threeLayer.removeMesh(baseObject3ds, false);
+                }
+            });
+            landF.addColor(params, 'landColor').onChange(function () {
                 landMaterial.color.set(params.landColor);
                 landMaterial.needsUpdate = true;
                 landMaterial.color.needsUpdate = true;
             });
-            gui.addColor(params, 'roadColor').onChange(function () {
+            //////
+
+            const roadF = gui.addFolder('road');
+            roadF.add(params, 'roadAdd').name('show').onChange(function () {
+                const baseObject3ds = meshes.filter(mesh => {
+                    return mesh.getOptions()._layer === 'roads';
+                });
+                if (params.roadAdd) {
+                    threeLayer.addMesh(baseObject3ds, false);
+                } else {
+                    threeLayer.removeMesh(baseObject3ds, false);
+                }
+            });
+            roadF.addColor(params, 'roadColor').onChange(function () {
                 roadMaterial.color.set(params.roadColor);
                 roadMaterial.needsUpdate = true;
                 roadMaterial.color.needsUpdate = true;
             });
-            // gui.addColor(params, 'subwayColor').onChange(function () {
-            //     subwayMaterial.color.set(params.subwayColor);
-            //     subwayMaterial.needsUpdate = true;
-            //     subwayMaterial.color.needsUpdate = true;
-            // });
-            gui.addColor(params, 'grassColor').onChange(function () {
+            //////
+            const grassF = gui.addFolder('grass');
+            grassF.add(params, 'grassAdd').name('show').onChange(function () {
+                const baseObject3ds = meshes.filter(mesh => {
+                    return mesh.getOptions()._layer === 'grass';
+                });
+                if (params.grassAdd) {
+                    threeLayer.addMesh(baseObject3ds, false);
+                } else {
+                    threeLayer.removeMesh(baseObject3ds, false);
+                }
+            });
+
+            grassF.addColor(params, 'grassColor').onChange(function () {
                 grassMaterial.color.set(params.grassColor);
                 grassMaterial.needsUpdate = true;
                 grassMaterial.color.needsUpdate = true;
             });
-            gui.add(params, 'text').name('show text').onChange(function () {
+            //////
+            const textF = gui.addFolder('text');
+            textF.add(params, 'textAdd').name('show').onChange(function () {
                 const texts = meshes.filter(mesh => {
                     return mesh instanceof TextSprite;
                 });
-                if (params.text) {
-                    threeLayer.addMesh(texts);
+                if (params.textAdd) {
+                    threeLayer.addMesh(texts, false);
                 } else {
-                    threeLayer.removeMesh(texts);
+                    threeLayer.removeMesh(texts, false);
                 }
             });
-            gui.addColor(params, 'textColor').onChange(function () {
+            textF.add(params, 'textAltitude', 0, 1000).name('altitude').onChange(function () {
+                meshes.forEach(mesh => {
+                    if (mesh instanceof TextSprite) {
+                        mesh.setAltitude(params.textAltitude);
+                    }
+                });
+            });
+
+            textF.addColor(params, 'textColor').onChange(function () {
                 meshes.forEach(mesh => {
                     if (mesh instanceof TextSprite) {
                         mesh.getObject3d().children[0].fillStyle = params.textColor;
@@ -474,8 +634,66 @@
                     }
                 })
             });
-            gui.add(params, 'download').name('download image');
-            gui.add(params, 'downloadGeoJSON').name('download geojson');
+            //////
+            const fogF = gui.addFolder('fog');
+            fogF.addColor(params, 'fogColor').onChange(function () {
+                threeLayer.getScene().fog.color.set(params.fogColor);
+            });
+            fogF.add(params, 'fogIndetity', 0, 1000).name('value/10000').onChange(function () {
+                threeLayer.getScene().fog.density = params.fogIndetity / 10000;
+            });
+
+            //////
+            const lightF = gui.addFolder('DirectionalLight');
+
+            lightF.add(params, 'lightAdd').name('add').onChange(function () {
+                if (params.lightAdd) {
+                    threeLayer.addMesh([directionalLight]);
+                } else {
+                    threeLayer.removeMesh([directionalLight]);
+                }
+            });
+            lightF.addColor(params, 'lightColor').onChange(function () {
+                directionalLight.color.set(params.lightColor);
+            });
+            lightF.add(params, 'lightIntensity', 0, 10).onChange(function () {
+                directionalLight.intensity = params.lightIntensity;
+            });
+            lightF.add(params, 'lightTop', -1000, 1000).onChange(function () {
+                directionalLight.shadow.camera.top = params.lightTop;
+                directionalLight.shadow.camera.needsUpdate = true;
+                directionalLight.shadow.camera.updateProjectionMatrix();
+            });
+            lightF.add(params, 'lightBottom', -1000, 1000).onChange(function () {
+                directionalLight.shadow.camera.bottom = params.lightBottom;
+                directionalLight.shadow.camera.needsUpdate = true;
+                directionalLight.shadow.camera.updateProjectionMatrix();
+            });
+            lightF.add(params, 'lightLeft', -1000, 1000).onChange(function () {
+                directionalLight.shadow.camera.left = params.lightLeft;
+                directionalLight.shadow.camera.needsUpdate = true;
+                directionalLight.shadow.camera.updateProjectionMatrix();
+            });
+            lightF.add(params, 'lightRight', -1000, 1000).onChange(function () {
+                directionalLight.shadow.camera.right = params.lightRight;
+                directionalLight.shadow.camera.needsUpdate = true;
+                directionalLight.shadow.camera.updateProjectionMatrix();
+            });
+            lightF.add(params, 'lightHeight', 0, 3000).onChange(function () {
+                const z = threeLayer.distanceToVector3(params.lightHeight, params.lightHeight).x;
+                directionalLight.position.z = z;
+            });
+            lightF.add(params, 'lightPosition', 0, 360).onChange(function () {
+                const coordinate = lightCircle.getShell()[Math.round(params.lightPosition)];
+                if (coordinate) {
+                    const z = threeLayer.distanceToVector3(params.lightHeight, params.lightHeight).x;
+                    const v = threeLayer.coordinateToVector3(coordinate, z);
+                    directionalLight.position.copy(v);
+                }
+            });
+
+            gui.add(params, 'download').name('export image');
+            gui.add(params, 'downloadGeoJSON').name('export geojson');
 
         }
 
