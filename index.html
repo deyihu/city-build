@@ -11,6 +11,7 @@
     <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/three@0.118.0/build/three.min.js"></script>
     <script type="text/javascript"
         src="https://cdn.jsdelivr.net/npm/three@0.118.0/examples/js/exporters/GLTFExporter.js"></script>
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/three@0.118.3/examples/js/objects/Sky.js"></script>
     <script type="text/javascript"
         src="https://cdn.jsdelivr.net/npm/three-text2d@0.5.3/dist/three-text2d.min.js"></script>
     <script type="text/javascript"
@@ -24,6 +25,7 @@
     <script type="text/javascript" src="./js/tile-cover.js"></script>
     <script type="text/javascript" src="./js/TextSprite.js"></script>
     <script type="text/javascript" src="./js/Groud.js"></script>
+    <script type="text/javascript" src="./js/Sky.js"></script>
     <script type="text/javascript" src="./js/ThreeLayer.js"></script>
     <script type="text/javascript" src="./js/util.js"></script>
 
@@ -123,14 +125,16 @@
             urlTemplate: 'https://{s}.tiles.mapbox.com/v3/diccfish.map-fwz7rlzv/{z}/{x}/{y}.png',
             subdomains: ['a', 'b', 'c', 'd']
         });
+        baseLayer.setZIndex(-10);
 
         var map = new maptalks.Map("map", {
             "center": [116.39184088520585, 39.91615319679542],
             "zoom": 16.005334044803836, "pitch": 0, "bearing": 0,
             centerCross: true,
-            doubleClickZoom: false,
-            baseLayer: baseLayer
+            doubleClickZoom: false
         });
+
+        map.addLayer(baseLayer);
 
         var layer = new maptalks.VectorLayer(maptalks.Util.GUID());
         map.addLayer(layer);
@@ -260,12 +264,27 @@
             ground = new Ground(map.getCenter(), { altitude: 5 }, groundShadowMaterial, threeLayer);
             threeLayer.addMesh(ground);
 
+            sky = new Sky([], {}, null, threeLayer1);
+            // threeLayer1.addMesh(sky);
+            params.inclination = sky.parameters.inclination;
+            params.azimuth = sky.parameters.azimuth;
+            params.turbidity = sky.sky.material.uniforms.turbidity.value;
+            params.rayleigh = sky.sky.material.uniforms.rayleigh.value;
+
             animation();
             initGui();
 
-
         };
         threeLayer.addTo(map);
+
+        var threeLayer1 = new maptalks.ThreeLayer('t1', {
+            forceRenderOnMoving: true,
+            forceRenderOnRotating: true
+            // animation: true
+        });
+        threeLayer1.setZIndex(-100);
+        threeLayer1.addTo(map);
+
         map.on('zooming zoomend moveend animateend', () => {
             threeLayer.collides();
         });
@@ -280,7 +299,7 @@
             threeLayer.addMesh(cube);
         }
 
-
+        var sky;
         var lightCircle;
         var meshes = [];
         var geojson = {
@@ -471,6 +490,8 @@
                 threeLayer._renderer.clearCanvas();
                 threeLayer.renderScene();
                 threeLayer.collides();
+                threeLayer1.renderScene();
+                threeLayer1.getScene().rotation.x = -Math.PI / 2;
             }
             stats.update();
             requestAnimationFrame(animation);
@@ -559,7 +580,13 @@
             lightLeft: directionalLight.shadow.camera.left,
             lightRight: directionalLight.shadow.camera.right,
             lightHeight: 780,
-            lightPosition: 0
+            lightPosition: 0,
+
+            sky: false,
+            inclination: 0,
+            azimuth: 0,
+            turbidity: 0,
+            rayleigh: 0
         };
 
         function initGui() {
@@ -572,9 +599,9 @@
             gui.add(params, 'clear').name('clear data');
             gui.add(params, 'tilelayer').onChange(function () {
                 if (params.tilelayer) {
-                    map.setBaseLayer(baseLayer);
+                    map.addLayer(baseLayer);
                 } else {
-                    map.removeBaseLayer(baseLayer);
+                    map.removeLayer(baseLayer);
                 }
             });
             gui.addColor(params, 'background').onChange(function () {
@@ -759,6 +786,30 @@
                     const v = threeLayer.coordinateToVector3(coordinate, z);
                     directionalLight.position.copy(v);
                 }
+            });
+
+            const skyF = gui.addFolder('sky');
+            skyF.add(params, 'sky').onChange(function () {
+                if (params.sky) {
+                    threeLayer1.addMesh(sky);
+                } else {
+                    threeLayer1.removeMesh(sky);
+                }
+            });
+
+            skyF.add(params, 'inclination', -1, 1, 0.0001).onChange(function () {
+                sky.parameters.inclination = params.inclination;
+                sky.updateSun();
+            });
+            skyF.add(params, 'azimuth', 0, 1, 0.0001).onChange(function () {
+                sky.parameters.azimuth = params.azimuth;
+                sky.updateSun();
+            });
+            skyF.add(params, 'turbidity', 0.45, 2000, 0.0001).onChange(function () {
+                sky.sky.material.uniforms.turbidity.value = params.turbidity;
+            });
+            skyF.add(params, 'rayleigh', 0, 10, 0.0001).onChange(function () {
+                sky.sky.material.uniforms.rayleigh.value = params.rayleigh;
             });
 
             gui.add(params, 'download').name('export image');
