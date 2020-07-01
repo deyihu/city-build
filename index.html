@@ -8,17 +8,19 @@
     <link type="text/css" rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maptalks/dist/maptalks.css">
     <script type="text/javascript"
         src="https://cdn.jsdelivr.net/npm/maptalks@1.0.0-alpha.7/dist/maptalks.min.js"></script>
-    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/three@0.104.0/build/three.min.js"></script>
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/three@0.118.0/build/three.min.js"></script>
+    <script type="text/javascript"
+        src="https://cdn.jsdelivr.net/npm/three@0.118.0/examples/js/exporters/GLTFExporter.js"></script>
     <script type="text/javascript"
         src="https://cdn.jsdelivr.net/npm/three-text2d@0.5.3/dist/three-text2d.min.js"></script>
     <script type="text/javascript"
-        src="https://cdn.jsdelivr.net/npm/three@0.104.0/examples/js/lines/LineMaterial.js"></script>
+        src="https://cdn.jsdelivr.net/npm/three@0.118.0/examples/js/lines/LineMaterial.js"></script>
     <script type="text/javascript"
         src="https://cdn.jsdelivr.net/npm/maptalks.three/dist/maptalks.three.min.js"></script>
     <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/axios@0.19.2/dist/axios.min.js"></script>
     <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/rbush@3.0.1/rbush.min.js"></script>
     <script type="text/javascript"
-        src="https://cdn.jsdelivr.net/npm/three@0.104.0/examples/js/libs/stats.min.js"></script>
+        src="https://cdn.jsdelivr.net/npm/three@0.118.0/examples/js/libs/stats.min.js"></script>
     <script type="text/javascript" src="./js/tile-cover.js"></script>
     <script type="text/javascript" src="./js/TextSprite.js"></script>
     <script type="text/javascript" src="./js/Groud.js"></script>
@@ -49,18 +51,77 @@
             margin-left: -125px;
             text-align: center;
         }
+
+        #citylist {
+            background-color: black;
+            color: white;
+            position: absolute;
+            z-index: 1;
+            left: 0;
+            top: 70px;
+            width: 80px;
+            height: auto;
+            padding-left: 2px;
+            /* text-align: center; */
+        }
+
+        #citylist a {
+            line-height: 30px;
+            cursor: pointer;
+            font-size: 12px;
+        }
     </style>
 </head>
 
 <body>
     <div id="map"></div>
+    <div id="citylist">
+        <a>Bei Jing</a><br>
+        <a>Shang Hai</a><br>
+        <a>Shen Zhen</a><br>
+        <a>Hong Kong</a><br>
+        <a>New York</a><br>
+        <a>San Francisco</a><br>
+        <a>Los Angeles</a><br>
+        <a>Chicago</a><br>
+        <a>Tokyo</a><br>
+        <a>London</a><br>
+    </div>
     <div id="message"></div>
     <script>
 
+        const cityCenter = {
+            'Bei Jing': [116.38966910447857, 39.91796899924762],
+            'Shang Hai': [121.5028646871574, 31.239118831367108],
+            'Shen Zhen': [114.05278108656773, 22.54141078508738],
+            'Hong Kong': [114.1690518901039, 22.318409640510737],
+            'New York': [-73.96370625773278, 40.77769605421466],
+            'San Francisco': [-122.43298827756689, 37.75586316793337],
+            'Los Angeles': [-118.23116804761236, 34.05190916974456],
+            'Chicago': [-87.62549672000551, 41.88343327570695],
+            'Tokyo': [139.76203516062628, 35.680712799893485],
+            'London': [-0.11117957661542732, 51.503036459697256]
+        };
+
+        function viewCity(cityName) {
+            const center = cityCenter[cityName];
+            if (center) {
+                map.setCenter(center);
+                // map.setZoom(10);
+
+            }
+        }
+
+        const citys = document.querySelectorAll('#citylist a');
+        citys.forEach(city => {
+            city.addEventListener('click', function () {
+                viewCity(this.innerHTML);
+            });
+        });
+
         var baseLayer = new maptalks.TileLayer('tile', {
             urlTemplate: 'https://{s}.tiles.mapbox.com/v3/diccfish.map-fwz7rlzv/{z}/{x}/{y}.png',
-            subdomains: ['a', 'b', 'c', 'd'],
-            attribution: '&copy; <a href="http://osm.org">OpenStreetMap</a> contributors, &copy; <a href="https://carto.com/">CARTO</a>'
+            subdomains: ['a', 'b', 'c', 'd']
         });
 
         var map = new maptalks.Map("map", {
@@ -109,8 +170,8 @@
                 min_zoom: 16,
                 max_zoom: 16
             });
-            if (tiles.length > 50) {
-                alert('tiles.length>50 expected small area');
+            if (tiles.length > 100) {
+                alert('tiles.length>100 expected small area');
                 return;
             }
             if (tiles && tiles.length) {
@@ -169,7 +230,7 @@
             threeLayer.getThreeRenderer().shadowMap.enabled = true;
             threeLayer.getThreeRenderer().shadowMap.needsUpdate = true;
 
-            scene.fog = new THREE.FogExp2('#fff', 260.1606805293006 / 10000);
+            scene.fog = new THREE.FogExp2('#fff', 0 / 10000);
 
             params.fogColor = scene.fog.color.getStyle();
             params.fogIndetity = scene.fog.density * 10000;
@@ -454,6 +515,15 @@
             downloadGeoJSON: function () {
                 downloadFile(JSON.stringify(geojson), Date.now() + '.geojson');
             },
+            downloadGLTF: function () {
+                var gltfExporter = new THREE.GLTFExporter();
+                gltfExporter.parse(threeLayer.getScene(), function (result) {
+                    var output = JSON.stringify(result, null, 2);
+                    // saveString(output, 'scene.gltf');
+                    downloadFile(new Blob([output], { type: 'text/plain' }), Date.now() + '.gltf')
+
+                }, {});
+            },
             background: '#fff',
             tilelayer: true,
             buildingAdd: true,
@@ -693,6 +763,7 @@
 
             gui.add(params, 'download').name('export image');
             gui.add(params, 'downloadGeoJSON').name('export geojson');
+            gui.add(params, 'downloadGLTF').name('export gltf');
 
         }
 
