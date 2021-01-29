@@ -122,10 +122,17 @@
         });
 
         var baseLayer = new maptalks.TileLayer('tile', {
-            urlTemplate: 'https://{s}.tiles.mapbox.com/v3/diccfish.map-fwz7rlzv/{z}/{x}/{y}.png',
+            tileSize: [512, 512],
+            urlTemplate: 'https://api.mapbox.com/styles/v1/mapbox/streets-v11/tiles/{z}/{x}/{y}?access_token=pk.eyJ1IjoibWFwYm94IiwiYSI6ImNpejh2N21nMzAxMmQzMnA5emRyN2lucW0ifQ.jSE-g2vsn48Ry928pqylcg',
             subdomains: ['a', 'b', 'c', 'd']
         });
         baseLayer.setZIndex(-10);
+
+        baseLayer.getTileUrl = function (x, y, z) {
+            //replace with your own
+            //e.g. return a url pointing to your sqlite database
+            return maptalks.TileLayer.prototype.getTileUrl.call(this, x, y, z - 1);
+        };
 
         var map = new maptalks.Map("map", {
             "center": [116.39184088520585, 39.91615319679542],
